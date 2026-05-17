@@ -181,12 +181,8 @@ const SIL_MS = 2000;  // milliseconds of silence before auto-speak triggers
 
 ---
 
-## 📄 License
 
-MIT — free to use, modify, and distribute.
-
----
 
 ## 🙌 Credits
 
-Built with [MediaPipe Hands](https://ai.google.dev/edge/mediapipe/solutions/vision/hand_landmarker) by Google and the Web Speech API.
+Aditi Sharma
