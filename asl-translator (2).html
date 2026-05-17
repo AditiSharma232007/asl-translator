@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ASL Word Translator</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0a0a0f;--surf:#12121a;--surf2:#1a1a26;
+  --bdr:rgba(255,255,255,0.08);--bdr2:rgba(255,255,255,0.16);
+  --acc:#7c6af7;--acc2:#a09af9;--grn:#3de89c;
+  --txt:#f0eeff;--mut:rgba(240,238,255,0.45);
+  --fh:'Syne',sans-serif;--fm:'DM Mono',monospace;
+}
+body{background:var(--bg);color:var(--txt);font-family:var(--fm);min-height:100vh;display:flex;flex-direction:column}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(124,106,247,0.04)1px,transparent 1px),linear-gradient(90deg,rgba(124,106,247,0.04)1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+header{position:relative;z-index:1;padding:1.2rem 1.5rem;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--bdr)}
+.logo{font-family:var(--fh);font-weight:800;font-size:1rem;display:flex;align-items:center;gap:8px}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--acc);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.5;transform:scale(.75)}}
+.pill{font-size:.65rem;padding:3px 10px;border-radius:100px;border:1px solid var(--bdr2);color:var(--mut);background:var(--surf)}
+.pill.on{color:var(--grn);border-color:rgba(61,232,156,.3);background:rgba(61,232,156,.07)}
+main{position:relative;z-index:1;flex:1;display:grid;grid-template-columns:1fr 360px;gap:1rem;padding:1rem;max-width:1100px;margin:0 auto;width:100%}
+.cam-wrap{background:var(--surf);border:1px solid var(--bdr);border-radius:14px;overflow:hidden;position:relative;aspect-ratio:4/3;display:flex;align-items:center;justify-content:center}
+#vid{display:none}
+#cvs{width:100%;height:100%;object-fit:cover;display:block}
+.cam-msg{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:var(--surf)}
+.cam-msg.gone{display:none}
+.cam-msg p{color:var(--mut);font-size:.8rem;text-align:center;max-width:180px;line-height:1.6}
+.cam-tag{position:absolute;top:10px;left:10px;font-size:.6rem;letter-spacing:.08em;padding:3px 9px;border-radius:100px;background:rgba(10,10,15,.7);border:1px solid var(--bdr2);color:var(--mut);backdrop-filter:blur(4px)}
+.sign-word{position:absolute;bottom:14px;left:50%;transform:translateX(-50%);font-family:var(--fh);font-size:1.8rem;font-weight:800;color:#fff;text-shadow:0 0 24px var(--acc);opacity:0;transition:opacity .12s;pointer-events:none;white-space:nowrap}
+.sign-word.show{opacity:1}
+.panel{background:var(--surf);border:1px solid var(--bdr);border-radius:14px;padding:1.1rem;display:flex;flex-direction:column;gap:.9rem;overflow-y:auto;max-height:calc(100vh - 120px)}
+.lbl{font-size:.6rem;letter-spacing:.1em;color:var(--mut);text-transform:uppercase;margin-bottom:.3rem}
+.det-box{background:var(--surf2);border:1px solid var(--bdr);border-radius:10px;padding:.9rem;min-height:56px;display:flex;align-items:center;gap:12px}
+.det-word{font-family:var(--fh);font-size:1.4rem;font-weight:800;color:var(--acc2)}
+.det-conf{font-size:.7rem;color:var(--mut)}
+.cbar-wrap{display:flex;align-items:center;gap:8px;font-size:.65rem;color:var(--mut)}
+.cbar{flex:1;height:3px;background:var(--bdr);border-radius:100px;overflow:hidden}
+.cfill{height:100%;background:var(--grn);border-radius:100px;transition:width .15s;width:0%}
+.hold-ring-wrap{width:40px;height:40px;flex-shrink:0}
+.hold-ring{transform:rotate(-90deg)}
+.ring-bg{fill:none;stroke:var(--bdr);stroke-width:4}
+.ring-fg{fill:none;stroke:var(--acc);stroke-width:4;stroke-linecap:round;stroke-dasharray:100.5;stroke-dashoffset:100.5;transition:stroke-dashoffset .05s linear}
+.sent-box{background:var(--surf2);border:1px solid var(--bdr);border-radius:10px;padding:.9rem;min-height:70px;font-family:var(--fh);font-size:1rem;font-weight:700;line-height:1.7;word-break:break-word}
+.sent-box.empty{color:var(--mut);font-family:var(--fm);font-weight:400;font-size:.8rem}
+.wrd.speaking{color:var(--acc2);text-decoration:underline;text-decoration-color:rgba(160,154,249,.4)}
+.btns{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+button{font-family:var(--fm);font-size:.72rem;letter-spacing:.03em;padding:9px 12px;border-radius:8px;cursor:pointer;border:1px solid var(--bdr2);background:var(--surf2);color:var(--txt);transition:background .12s,border-color .12s,transform .08s}
+button:hover{background:rgba(255,255,255,.06);border-color:rgba(255,255,255,.22)}
+button:active{transform:scale(.97)}
+.btn-speak{grid-column:1/-1;background:var(--acc);border-color:transparent;color:#fff;font-weight:500;font-size:.78rem}
+.btn-speak:hover{background:var(--acc2)}
+.btn-speak:disabled{opacity:.35;cursor:default}
+.btn-start{grid-column:1/-1;border-color:var(--acc);color:var(--acc2)}
+.word-grid{display:flex;flex-wrap:wrap;gap:5px}
+.wchip{font-size:.65rem;padding:3px 9px;border-radius:6px;background:var(--surf2);border:1px solid var(--bdr);color:var(--mut);cursor:pointer;transition:background .1s,border-color .1s,color .1s}
+.wchip:hover{background:rgba(124,106,247,.15);border-color:var(--acc);color:var(--acc2)}
+.wchip.active{background:rgba(124,106,247,.2);border-color:var(--acc);color:var(--acc2)}
+.tog-row{display:flex;align-items:center;gap:8px;font-size:.68rem;color:var(--mut);cursor:pointer}
+.tog{width:30px;height:16px;background:var(--surf2);border:1px solid var(--bdr2);border-radius:100px;position:relative;transition:background .15s;flex-shrink:0}
+.tog.on{background:var(--acc);border-color:transparent}
+.tog::after{content:'';width:10px;height:10px;border-radius:50%;background:#fff;position:absolute;top:2px;left:2px;transition:transform .15s}
+.tog.on::after{transform:translateX(14px)}
+.hist{border-top:1px solid var(--bdr);padding-top:.7rem}
+.hi{font-size:.72rem;color:var(--mut);padding:4px 0;border-bottom:1px solid var(--bdr);display:flex;justify-content:space-between;align-items:center;gap:6px}
+.hi:last-child{border:none}
+.hi-replay{font-size:.62rem;color:var(--acc);cursor:pointer;opacity:0;transition:opacity .12s;flex-shrink:0}
+.hi:hover .hi-replay{opacity:1}
+footer{position:relative;z-index:1;display:flex;align-items:center;gap:1rem;padding:.8rem 1.5rem;border-top:1px solid var(--bdr);font-size:.65rem;color:var(--mut)}
+.toast{position:fixed;bottom:70px;left:50%;transform:translateX(-50%) translateY(16px);background:var(--surf2);border:1px solid var(--bdr2);border-radius:8px;padding:6px 14px;font-size:.72rem;color:var(--txt);opacity:0;transition:opacity .25s,transform .25s;pointer-events:none;z-index:999;white-space:nowrap}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+.sign-ref{font-size:.62rem;color:var(--mut);font-style:italic;margin-top:2px}
+@media(max-width:780px){main{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo"><div class="dot"></div>ASL → VOICE</div>
+  <div class="pill" id="spill">OFFLINE</div>
+</header>
+<main>
+  <div class="cam-wrap">
+    <video id="vid" playsinline></video>
+    <canvas id="cvs"></canvas>
+    <div class="cam-msg" id="camMsg">
+      <div style="font-size:2.5rem;opacity:.25">✋</div>
+      <p>Click "Start Camera" to begin signing</p>
+    </div>
+    <div class="cam-tag" id="camTag">NO SIGNAL</div>
+    <div class="sign-word" id="signWord"></div>
+  </div>
+
+  <div class="panel">
+    <div>
+      <div class="lbl">Detected sign</div>
+      <div class="det-box">
+        <div class="hold-ring-wrap">
+          <svg class="hold-ring" viewBox="0 0 36 36" width="40" height="40">
+            <circle class="ring-bg" cx="18" cy="18" r="16"/>
+            <circle class="ring-fg" id="ringFg" cx="18" cy="18" r="16"/>
+          </svg>
+        </div>
+        <div>
+          <div class="det-word" id="detWord">—</div>
+          <div class="det-conf" id="detConf">hold steady 1.2s to add</div>
+          <div class="sign-ref" id="signRef"></div>
+        </div>
+      </div>
+    </div>
+    <div class="cbar-wrap">
+      <span>Confidence</span>
+      <div class="cbar"><div class="cfill" id="cfill"></div></div>
+      <span id="cpct">0%</span>
+    </div>
+    <div>
+      <div class="lbl">Sentence</div>
+      <div class="sent-box empty" id="sentBox">Hold a sign ~1.2s to add it. 2s pause auto-commits word.</div>
+    </div>
+    <div class="btns">
+      <button class="btn-start" id="btnStart" onclick="startCam()">▶ Start Camera</button>
+      <button class="btn-speak" id="btnSpeak" onclick="speakAll()" disabled>🔊 Speak &amp; Clear</button>
+      <button onclick="undoLast()">← Undo last</button>
+      <button onclick="clearAll()">✕ Clear all</button>
+    </div>
+    <div>
+      <div class="lbl" style="margin-bottom:.5rem">Quick-add (tap to add word)</div>
+      <div class="word-grid" id="wordGrid"></div>
+    </div>
+    <label class="tog-row" onclick="toggleAuto()">
+      <div class="tog" id="autoTog"></div>
+      Auto-speak after 2s pause
+    </label>
+    <div class="hist">
+      <div class="lbl">History</div>
+      <div id="histList"><div style="color:var(--mut);font-size:.72rem">nothing spoken yet</div></div>
+    </div>
+  </div>
+</main>
+<footer>
+  <span>MediaPipe Hands · Web Speech API · ASL word-level signs</span>
+  <span style="margin-left:auto;opacity:.5">320×240 · lite model · 10fps</span>
+</footer>
+<div class="toast" id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// ASL WORD SIGN LIBRARY
+// Each entry: { word, desc, fn(landmarks) → confidence 0-1 or null }
+// landmarks = array of 21 {x,y,z} from MediaPipe (normalized 0-1)
+// ═══════════════════════════════════════════════════════════════
+
+function makeHelpers(lm) {
+  const d2 = (a,b) => Math.hypot(lm[a].x-lm[b].x, lm[a].y-lm[b].y);
+  // extended: tip significantly above PIP
+  const ext = (tip,pip) => lm[tip].y < lm[pip].y - 0.025;
+  // curled: tip below MCP
+  const curl = (tip,mcp) => lm[tip].y > lm[mcp].y - 0.005;
+  const f = {
+    thumb:  lm[4].x < lm[3].x - 0.025, // thumb out (mirrored feed)
+    index:  ext(8,6),
+    middle: ext(12,10),
+    ring:   ext(16,14),
+    pinky:  ext(20,18),
+  };
+  return { d2, ext, curl, f, lm };
+}
+
+const SIGNS = [
+  {
+    word:'HELLO', desc:'Open hand raised (wave)',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&f.middle&&f.ring&&f.pinky&&L[9].y<0.5 ? 0.85 : null; }
+  },
+  {
+    word:'THANK YOU', desc:'Flat hand from chin forward',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&f.middle&&f.ring&&f.pinky&&L[9].y>0.38&&L[9].y<0.65 ? 0.80 : null; }
+  },
+  {
+    word:'YES', desc:'Fist nods (S-hand)',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return !f.index&&!f.middle&&!f.ring&&!f.pinky&&!f.thumb ? 0.80 : null; }
+  },
+  {
+    word:'NO', desc:'Index+middle snap to thumb',
+    fn(lm){ const {f,d2}=makeHelpers(lm);
+      return f.index&&f.middle&&!f.ring&&!f.pinky&&d2(8,12)>0.07 ? 0.78 : null; }
+  },
+  {
+    word:'PLEASE', desc:'Flat hand circles chest (fingers up, thumb in)',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&f.middle&&f.ring&&f.pinky&&!f.thumb&&L[9].y>0.52 ? 0.78 : null; }
+  },
+  {
+    word:'SORRY', desc:'A-fist circles chest',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return !f.index&&!f.middle&&!f.ring&&!f.pinky&&f.thumb&&L[9].y>0.48 ? 0.77 : null; }
+  },
+  {
+    word:'I LOVE YOU', desc:'ILY hand: pinky+index+thumb out',
+    fn(lm){ const {f}=makeHelpers(lm);
+      return f.index&&f.pinky&&f.thumb&&!f.middle&&!f.ring ? 0.90 : null; }
+  },
+  {
+    word:'HELP', desc:'Thumb-up lifted on palm',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.thumb&&!f.index&&!f.middle&&!f.ring&&!f.pinky&&L[4].y<L[9].y ? 0.83 : null; }
+  },
+  {
+    word:'STOP', desc:'Flat hand chops sideways',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&f.middle&&f.ring&&f.pinky&&L[8].y<L[20].y-0.09 ? 0.80 : null; }
+  },
+  {
+    word:'MORE', desc:'Fingertips tap (flat O hands)',
+    fn(lm){ const {d2}=makeHelpers(lm);
+      return d2(8,12)<0.04&&d2(12,16)<0.04&&d2(4,8)<0.07 ? 0.83 : null; }
+  },
+  {
+    word:'WATER', desc:'W-hand (index+middle+ring) taps chin',
+    fn(lm){ const {f}=makeHelpers(lm);
+      return f.index&&f.middle&&f.ring&&!f.pinky&&!f.thumb ? 0.79 : null; }
+  },
+  {
+    word:'EAT', desc:'Flat O taps mouth',
+    fn(lm){ const {f,d2,lm:L}=makeHelpers(lm);
+      return !f.index&&!f.middle&&!f.ring&&!f.pinky&&L[9].y<0.44&&d2(4,8)<0.06 ? 0.80 : null; }
+  },
+  {
+    word:'GOOD', desc:'Flat hand from chin, all fingers+thumb out',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&f.middle&&f.ring&&f.pinky&&f.thumb&&L[9].y>0.35&&L[9].y<0.6 ? 0.82 : null; }
+  },
+  {
+    word:'BAD', desc:'Fingers up, palm faces down/away',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&f.middle&&f.ring&&f.pinky&&L[0].y<L[9].y-0.07 ? 0.78 : null; }
+  },
+  {
+    word:'WANT', desc:'Claw hands pull toward body',
+    fn(lm){ const {lm:L}=makeHelpers(lm);
+      // claw: all fingertips lower than PIP (bent forward)
+      const claw = L[8].y>L[6].y&&L[12].y>L[10].y&&L[16].y>L[14].y&&L[20].y>L[18].y;
+      return claw&&L[9].y>0.45 ? 0.79 : null; }
+  },
+  {
+    word:'WHERE', desc:'Index wags side to side',
+    fn(lm){ const {f}=makeHelpers(lm);
+      return f.index&&!f.middle&&!f.ring&&!f.pinky&&!f.thumb ? 0.76 : null; }
+  },
+  {
+    word:'WHO', desc:'L-hand at chin (index+thumb L-shape)',
+    fn(lm){ const {f,d2,lm:L}=makeHelpers(lm);
+      return f.index&&!f.middle&&!f.ring&&!f.pinky&&f.thumb&&d2(4,8)>0.15&&L[9].y>0.42 ? 0.77 : null; }
+  },
+  {
+    word:'MY / MINE', desc:'Flat hand on chest',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&f.middle&&f.ring&&f.pinky&&!f.thumb&&L[9].y>0.55 ? 0.79 : null; }
+  },
+  {
+    word:'YOU', desc:'Index points forward',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&!f.middle&&!f.ring&&!f.pinky&&!f.thumb&&L[8].y<L[5].y ? 0.77 : null; }
+  },
+  {
+    word:'WAIT', desc:'Spread open hand (5-hand)',
+    fn(lm){ const {f,d2}=makeHelpers(lm);
+      return f.index&&f.middle&&f.ring&&f.pinky&&f.thumb&&d2(8,20)>0.28 ? 0.81 : null; }
+  },
+  {
+    word:'COME', desc:'Index finger beckons',
+    fn(lm){ const {lm:L,f}=makeHelpers(lm);
+      // index slightly bent (tip not much above MCP)
+      const bent = f.index && L[8].y > L[5].y - 0.06;
+      return bent&&!f.middle&&!f.ring&&!f.pinky ? 0.74 : null; }
+  },
+  {
+    word:'NAME', desc:'H-hand (index+middle horizontal)',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&f.middle&&!f.ring&&!f.pinky&&!f.thumb&&Math.abs(L[8].y-L[12].y)<0.045 ? 0.78 : null; }
+  },
+  {
+    word:'AGAIN', desc:'Bent hand arcs into palm',
+    fn(lm){ const {lm:L}=makeHelpers(lm);
+      const bent = L[8].y>L[6].y-0.01&&L[12].y>L[10].y-0.01;
+      return bent&&L[9].y>0.5 ? 0.74 : null; }
+  },
+  {
+    word:'UNDERSTAND', desc:'Index flicks up from forehead',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&!f.middle&&!f.ring&&!f.pinky&&L[8].y<0.35 ? 0.76 : null; }
+  },
+  {
+    word:'KNOW', desc:'Flat hand taps temple',
+    fn(lm){ const {f,lm:L}=makeHelpers(lm);
+      return f.index&&f.middle&&f.ring&&f.pinky&&L[9].y<0.42&&L[9].x>0.55 ? 0.77 : null; }
+  },
+];
+
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+let sentence=[], lastWord=null, holdStart=null, holdAdded=false;
+let silTimer=null, autoSpeak=false, camOn=false, busy=false, frameN=0;
+const HOLD_MS=1200, SIL_MS=2000, FRAME_SKIP=3;
+
+// ═══════════════════════════════════════════════════════════════
+// UI
+// ═══════════════════════════════════════════════════════════════
+function toast(msg,ms=2000){
+  const el=document.getElementById('toast');
+  el.textContent=msg; el.classList.add('show');
+  setTimeout(()=>el.classList.remove('show'),ms);
+}
+function setSentence(){
+  const el=document.getElementById('sentBox');
+  const btn=document.getElementById('btnSpeak');
+  if(!sentence.length){
+    el.className='sent-box empty';
+    el.textContent='Hold a sign ~1.2s to add it. 2s pause auto-commits.';
+    btn.disabled=true;
+  } else {
+    el.className='sent-box';
+    el.innerHTML=sentence.map((w,i)=>`<span class="wrd" id="w${i}">${w}</span> `).join('');
+    btn.disabled=false;
+  }
+}
+function setDetected(word,conf,desc){
+  document.getElementById('detWord').textContent=word||'—';
+  document.getElementById('detConf').textContent=word?`${Math.round(conf*100)}% confidence`:'hold steady 1.2s to add';
+  document.getElementById('signRef').textContent=desc||'';
+  document.getElementById('cfill').style.width=word?Math.round(conf*100)+'%':'0%';
+  document.getElementById('cpct').textContent=word?Math.round(conf*100)+'%':'0%';
+  const sw=document.getElementById('signWord');
+  if(word){sw.textContent=word;sw.classList.add('show');}
+  else sw.classList.remove('show');
+}
+function setRing(p){
+  const circ=2*Math.PI*16;
+  document.getElementById('ringFg').style.strokeDashoffset=circ*(1-p);
+}
+function addHistory(text){
+  const list=document.getElementById('histList');
+  const ph=list.querySelector('[style]');
+  if(ph)ph.remove();
+  const d=document.createElement('div');
+  d.className='hi';
+  d.innerHTML=`<span>${text}</span><span class="hi-replay" onclick="speak(${JSON.stringify(text)})">▶</span>`;
+  list.insertBefore(d,list.firstChild);
+  while(list.children.length>6)list.removeChild(list.lastChild);
+}
+function buildGrid(){
+  const g=document.getElementById('wordGrid');
+  SIGNS.forEach(s=>{
+    const c=document.createElement('div');
+    c.className='wchip'; c.textContent=s.word; c.title=s.desc;
+    c.onclick=()=>{sentence.push(s.word);setSentence();toast(`+ ${s.word}`);};
+    g.appendChild(c);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// ACTIONS
+// ═══════════════════════════════════════════════════════════════
+function undoLast(){if(sentence.length){sentence.pop();setSentence();}}
+function clearAll(){sentence=[];setSentence();setDetected(null,0,'');setRing(0);}
+function speakAll(){
+  if(!sentence.length)return;
+  const text=sentence.join(' ');
+  speak(text,true);
+  addHistory(text);
+  clearAll();
+}
+function speak(text,highlight=false){
+  if(!('speechSynthesis' in window)){toast('Speech not supported');return;}
+  speechSynthesis.cancel();
+  const u=new SpeechSynthesisUtterance(text);
+  u.rate=0.88;u.pitch=1;u.volume=1;
+  if(highlight){
+    u.onboundary=e=>{
+      document.querySelectorAll('.wrd').forEach(w=>w.classList.remove('speaking'));
+      const ws=document.querySelectorAll('.wrd');
+      let c=0;
+      for(let i=0;i<ws.length;i++){
+        if(c>=e.charIndex){ws[i].classList.add('speaking');break;}
+        c+=ws[i].textContent.length+1;
+      }
+    };
+    u.onend=()=>document.querySelectorAll('.wrd').forEach(w=>w.classList.remove('speaking'));
+  }
+  speechSynthesis.speak(u);
+  toast('🔊 '+text);
+}
+function toggleAuto(){
+  autoSpeak=!autoSpeak;
+  document.getElementById('autoTog').className='tog'+(autoSpeak?' on':'');
+  toast(autoSpeak?'Auto-speak on':'Auto-speak off');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CLASSIFY
+// ═══════════════════════════════════════════════════════════════
+function classify(lm){
+  let best=null,bestConf=0.62;
+  for(const sign of SIGNS){
+    try{
+      const c=sign.fn(lm);
+      if(c&&c>bestConf){best=sign;bestConf=c;}
+    }catch(_){}
+  }
+  return best?{word:best.word,conf:bestConf,desc:best.desc}:null;
+}
+
+// ═══════════════════════════════════════════════════════════════
+// CAMERA  (no Camera utility — manual throttled RAF)
+// ═══════════════════════════════════════════════════════════════
+async function startCam(){
+  if(camOn)return;
+  const btn=document.getElementById('btnStart');
+  btn.textContent='⏳ Loading…';btn.disabled=true;
+  try{
+    const stream=await navigator.mediaDevices.getUserMedia({
+      video:{width:{ideal:320},height:{ideal:240},frameRate:{ideal:20,max:30}}
+    });
+    const vid=document.getElementById('vid');
+    vid.srcObject=stream;
+    await vid.play();
+
+    const cvs=document.getElementById('cvs');
+    const ctx=cvs.getContext('2d',{willReadFrequently:false,alpha:false});
+    cvs.width=320;cvs.height=240;
+
+    document.getElementById('camMsg').classList.add('gone');
+    document.getElementById('camTag').textContent='LIVE';
+    document.getElementById('spill').textContent='ACTIVE';
+    document.getElementById('spill').className='pill on';
+
+    const hands=new Hands({
+      locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+    });
+    hands.setOptions({
+      maxNumHands:1,
+      modelComplexity:0,           // 0 = lite, fastest
+      minDetectionConfidence:0.60,
+      minTrackingConfidence:0.50
+    });
+
+    hands.onResults(res=>{
+      busy=false;
+      ctx.clearRect(0,0,320,240);
+      ctx.save();ctx.scale(-1,1);ctx.translate(-320,0);
+      ctx.drawImage(res.image,0,0,320,240);
+      ctx.restore();
+
+      if(res.multiHandLandmarks?.length){
+        const lm=res.multiHandLandmarks[0];
+        ctx.save();ctx.scale(-1,1);ctx.translate(-320,0);
+        drawConnectors(ctx,lm,HAND_CONNECTIONS,{color:'rgba(124,106,247,0.55)',lineWidth:1.5});
+        drawLandmarks(ctx,lm,{color:'#7c6af7',lineWidth:1,radius:2});
+        ctx.restore();
+
+        const hit=classify(lm);
+        if(hit){
+          setDetected(hit.word,hit.conf,hit.desc);
+          if(hit.word===lastWord){
+            if(!holdStart)holdStart=Date.now();
+            const held=Date.now()-holdStart;
+            setRing(Math.min(held/HOLD_MS,1));
+            if(held>=HOLD_MS&&!holdAdded){
+              sentence.push(hit.word);
+              holdAdded=true;
+              setSentence();
+              toast('✓ '+hit.word);
+              // flash chip
+              document.querySelectorAll('.wchip').forEach(c=>{
+                if(c.textContent===hit.word)c.classList.add('active');
+              });
+              setTimeout(()=>document.querySelectorAll('.wchip').forEach(c=>c.classList.remove('active')),700);
+            }
+          } else {
+            lastWord=hit.word;holdStart=null;holdAdded=false;setRing(0);
+          }
+          if(silTimer){clearTimeout(silTimer);silTimer=null;}
+          silTimer=setTimeout(()=>{
+            if(autoSpeak&&sentence.length)speakAll();
+          },SIL_MS);
+        } else {
+          setDetected(null,0,'');setRing(0);
+          lastWord=null;holdStart=null;holdAdded=false;
+        }
+      } else {
+        setDetected(null,0,'');setRing(0);
+        lastWord=null;holdStart=null;holdAdded=false;
+      }
+    });
+
+    // Throttled loop: send 1 in FRAME_SKIP frames, never queue
+    (function loop(){
+      requestAnimationFrame(loop);
+      if(vid.readyState<2)return;
+      frameN++;
+      if(frameN%FRAME_SKIP!==0||busy)return;
+      busy=true;
+      hands.send({image:vid}).catch(()=>{busy=false;});
+    })();
+
+    camOn=true;
+    btn.textContent='✓ Camera On';
+    btn.style.color='var(--grn)';
+    btn.style.borderColor='rgba(61,232,156,.3)';
+  } catch(e){
+    btn.textContent='▶ Start Camera';btn.disabled=false;
+    toast('Camera error: '+e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+buildGrid();
+setSentence();
+</script>
+</body>
+</html>
